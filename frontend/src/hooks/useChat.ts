@@ -75,20 +75,20 @@ export const useChat = () => {
     /**
      * 🔹 Send message
      */
-    const sendMessage = useCallback(
+    const sendChatMessageHook = useCallback(
         async (content: string) => {
             if (!content.trim() || isLoading) return;
 
             const userMessage: Message = {
                 id: Date.now(),
-                role: 'user',
-                content: content.trim(),
+                role: "user",
+                content,
                 timestamp: new Date().toISOString(),
             };
 
-            const tempId = activeChat ?? 'new';
+            const tempId = activeChat ?? "new";
 
-            // Optimistic UI
+            // 1️⃣ Optimistic user message
             setMessages((prev) => ({
                 ...prev,
                 [tempId]: [...(prev[tempId] || []), userMessage],
@@ -97,13 +97,12 @@ export const useChat = () => {
             setIsLoading(true);
 
             try {
-                const response = await chatApi.sendMessage(
-                    content.trim(),
-                    activeChat ?? undefined
-                );
+                // 2️⃣ Call backend (THIS triggers LLM)
+                const response = await chatApi.sendMessage(content, activeChat ?? undefined);
 
                 const { conversationId, message: aiMessage } = response;
 
+                // 3️⃣ Store AI reply
                 setMessages((prev) => ({
                     ...prev,
                     [conversationId]: [
@@ -112,12 +111,13 @@ export const useChat = () => {
                     ],
                 }));
 
+                // 4️⃣ Update chat list
                 setChats((prev) => {
-                    const exists = prev.find((c) => c.conversationId === conversationId);
+                    const exists = prev.find((c) => c.id === conversationId);
 
                     if (exists) {
                         return prev.map((c) =>
-                            c.conversationId === conversationId
+                            c.id === conversationId
                                 ? {
                                     ...c,
                                     lastMessage: aiMessage.content,
@@ -131,7 +131,7 @@ export const useChat = () => {
                         {
                             id: conversationId,
                             conversationId,
-                            title: 'Support Chat',
+                            title: "Support Chat",
                             lastMessage: aiMessage.content,
                             timestamp: aiMessage.timestamp,
                         },
@@ -141,7 +141,7 @@ export const useChat = () => {
 
                 setActiveChat(conversationId);
             } catch (err) {
-                console.error('Failed to send message:', err);
+                console.error("Send message failed:", err);
             } finally {
                 setIsLoading(false);
             }
@@ -156,6 +156,6 @@ export const useChat = () => {
         isLoading,
         setActiveChat,
         createNewChat,
-        sendMessage,
+        sendMessage: sendChatMessageHook,
     };
 };
