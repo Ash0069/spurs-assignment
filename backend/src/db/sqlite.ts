@@ -12,7 +12,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT,
-    role TEXT,
+    role TEXT CHECK(role IN ('user','assistant')),
     content TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
