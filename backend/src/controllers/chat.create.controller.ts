@@ -2,17 +2,20 @@ import type { Request, Response } from "express";
 import db from "../db/sqlite.js";
 import { randomUUID } from "crypto";
 
-export const createChat = (_req: Request, res: Response) => {
-    const conversationId = randomUUID();
+export const createChat = async (_req: Request, res: Response) => {
+    try {
+        const conversationId = randomUUID();
 
-    db.prepare(
-        `
-    INSERT INTO conversations (id)
-    VALUES (?)
-  `
-    ).run(conversationId);
+        await db.execute({
+            sql: `INSERT INTO conversations (id) VALUES (?)`,
+            args: [conversationId],
+        });
 
-    res.status(201).json({
-        conversationId,
-    });
+        return res.status(201).json({
+            conversationId,
+        });
+    } catch (error) {
+        console.error("Create chat failed:", error);
+        return res.status(500).json({ error: "Failed to create conversation" });
+    }
 };

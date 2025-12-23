@@ -10,50 +10,49 @@ export const getMessages = async (req: Request, res: Response) => {
     }
 
     try {
-        // 1️⃣ Try Redis
+        // 1️⃣ Try Redis cache
         if (redis) {
             const key = `messages:${conversationId}`;
             const cached = await redis.lrange(key, 0, -1);
 
             if (cached.length > 0) {
-                console.log("✔ Loaded messages from Redis");
-
+                console.log("✔ Loaded messages from Redis cache");
                 return res.json({
                     messages: cached.map((m) => JSON.parse(m)),
                 });
             }
         }
 
-        // 2️⃣ Load from SQLite
-        const rows = db
-            .prepare(
-                `
+        // 2️⃣ Load messages from Turso (libSQL)
+        const result = await db.execute({
+            sql: `
                 SELECT 
                     id,
                     role,
                     content,
-                    created_at as timestamp
+                    created_at AS timestamp
                 FROM messages
                 WHERE conversation_id = ?
                 ORDER BY created_at ASC
-            `
-            )
-            .all(conversationId);
+            `,
+            args: [conversationId],
+        });
 
-        // 3️⃣ Save messages to Redis for future fast reads
+        const rows = result.rows;
+
+        // 3️⃣ Warm Redis cache
         if (redis) {
             const key = `messages:${conversationId}`;
-
-            await redis.del(key); // clear any stale data
+            await redis.del(key);
 
             for (const row of rows) {
                 await redis.rpush(key, JSON.stringify(row));
             }
 
-            // Optional: keep only last 50 messages to control memory
+            // store only last 50 messages
             await redis.ltrim(key, -50, -1);
 
-            console.log("✔ Redis cache warmed for conversation:", conversationId);
+            console.log("✔ Redis cache updated for conversation:", conversationId);
         }
 
         return res.json({ messages: rows });

@@ -1,22 +1,35 @@
-import Database from "better-sqlite3";
+import { createClient } from "@libsql/client";
+import { randomUUID } from "crypto";
 
-const db: Database.Database = new Database("chat.db");
+export const db = createClient({
+  url: process.env.TURSO_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN!,
+});
 
-// Create tables if not exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS conversations (
-    id TEXT PRIMARY KEY,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+// Create conversations table
+await db.execute({
+  sql: `
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      last_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `,
+});
 
-  CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT,
-    role TEXT CHECK(role IN ('user','assistant')),
-    content TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-  );
-`);
+// Create messages table
+await db.execute({
+  sql: `
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT CHECK(role IN ('user','assistant')) NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+  `,
+});
 
 export default db;
