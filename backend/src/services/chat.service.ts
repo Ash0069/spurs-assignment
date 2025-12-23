@@ -1,67 +1,56 @@
-import db from "../db/sqlite.js";
-import { randomUUID } from "crypto";
+import { redis } from "../redis/redisClient.js";
 import { generateReply } from "./llm.service.js";
+import db from "../db/sqlite.js";
 
 interface ProcessChatInput {
   message: string;
   conversationId?: string;
 }
 
-export async function processChat({
-  message,
-  conversationId,
-}: ProcessChatInput) {
-  const convoId = conversationId ?? randomUUID();
+export async function processChat({ message, conversationId }: ProcessChatInput) {
+  // 1. Conversation ID assignment
+  const convId = conversationId || crypto.randomUUID();
 
-  // Ensure conversation exists
+  // 2. Save user message to db
   db.prepare(
-    `INSERT OR IGNORE INTO conversations (id) VALUES (?)`
-  ).run(convoId);
+    `INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)`
+  ).run(convId, message);
 
-  const now = new Date().toISOString();
+  // 3. Save to Redis cache (optional)
+  if (redis) {
+    await redis.rpush(`messages:${convId}`, JSON.stringify({
+      role: "user",
+      content: message,
+      timestamp: new Date().toISOString(),
+    }));
+    await redis.ltrim(`messages:${convId}`, -50, -1);
+  }
 
-  // Save user message
+  // 4. Generate LLM reply
+  const reply = await generateReply([], message);
+
+  // 5. Save reply to DB
   db.prepare(
-    `
-    INSERT INTO messages (conversation_id, role, content, created_at)
-    VALUES (?, 'user', ?, ?)
-    `
-  ).run(convoId, message, now);
+    `INSERT INTO messages (conversation_id, role, content) VALUES (?, 'assistant', ?)`
+  ).run(convId, reply);
 
-  // Fetch conversation history
-  const history = db
-    .prepare(
-      `
-      SELECT role, content
-      FROM messages
-      WHERE conversation_id = ?
-      ORDER BY created_at ASC
-      `
-    )
-    .all(convoId) as { role: "user" | "assistant"; content: string }[];
-
-  // Call AI
-  const aiReply = await generateReply(history, message);
-
-  const aiTimestamp = new Date().toISOString();
-
-  // Save AI message
-  const result = db
-    .prepare(
-      `
-      INSERT INTO messages (conversation_id, role, content, created_at)
-      VALUES (?, 'assistant', ?, ?)
-      `
-    )
-    .run(convoId, aiReply, aiTimestamp);
+  // 6. Cache reply
+  if (redis) {
+    await redis.rpush(`messages:${convId}`, JSON.stringify({
+      role: "assistant",
+      content: reply,
+      timestamp: new Date().toISOString(),
+    }));
+    await redis.ltrim(`messages:${convId}`, -50, -1);
+  }
 
   return {
-    conversationId: convoId,
+    conversationId: convId,
     message: {
-      id: result.lastInsertRowid,
+      id: Date.now(),
       role: "ai",
-      content: aiReply,
-      timestamp: aiTimestamp,
+      content: reply,
+      timestamp: new Date().toISOString(),
     },
   };
 }
